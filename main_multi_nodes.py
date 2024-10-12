@@ -58,7 +58,7 @@ def main(rank, local_rank):
         os.system('rm -r %s/*.*' % tensorboard_logpath)
         pprint(vars(opt))
 
-    train_script_name = opt.train_script_name if hasattr(opt, 'train_script_name') else 'train_bucket'
+    train_script_name = opt.train_script_name if hasattr(opt, 'train_script_name') else 'train'
     TrainProcess = dynamic_import(train_script_name)
     p = TrainProcess(rank, local_rank, opt)
 

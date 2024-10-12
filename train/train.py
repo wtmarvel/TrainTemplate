@@ -4,7 +4,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from torch.utils.tensorboard import SummaryWriter
-from torch.cuda.amp import autocast, GradScaler
+from torch.amp import autocast, GradScaler
 from torch.utils.data import DataLoader
 from torch.utils.data.distributed import DistributedSampler
 from train.ema_pytorch import EMA
@@ -44,6 +44,7 @@ class TrainProcess(DistributedTrainerBase):
         self.set_meter(['total', ])
         self.set_dataprovider(self.opt)
         self.set_model_and_loss()
+        self.load_model()
         if self.rank == 0:
             logpath = os.path.join(self.opt.model_save_dir, 'logs')
             self.sw = SummaryWriter(logpath)
@@ -97,7 +98,6 @@ class TrainProcess(DistributedTrainerBase):
     def set_model_and_loss(self):
         cprint(f'[rank-{self.rank}] Setting up model...', 'cyan')
         self.model = net().to(self.device)
-        self.load_model()
 
         if self.opt.world_size > 1:
             self.model = nn.SyncBatchNorm.convert_sync_batchnorm(self.model)
@@ -123,7 +123,7 @@ class TrainProcess(DistributedTrainerBase):
                 update_every=self.opt.ema_update_every,
                 # how often to actually update, to save on compute (updates every 10th .update() call)
                 start_step=1000000,
-                ma_device=torch.device('cpu')
+                ma_device=self.device,
             )
 
     def load_model(self):
@@ -139,11 +139,11 @@ class TrainProcess(DistributedTrainerBase):
 
         if filepath is not None:
             cprint('load ckpt from %s' % filepath, on_color='on_red')
-            checkpoint = torch.load(filepath, map_location='cpu')
+            checkpoint = torch.load(filepath, map_location='cpu', weights_only=True)
             self.start_epoch = checkpoint['epoch'] if 'epoch' in checkpoint else 0
             self.start_step = checkpoint['step'] if 'step' in checkpoint else 0
-            if 'net' in checkpoint and checkpoint['net'] is not None:
-                self.model.load_state_dict(self.get_match_ckpt(self.model, checkpoint['net']))
+            if 'model' in checkpoint and checkpoint['model'] is not None:
+                self.model.load_state_dict(self.get_match_ckpt(self.model, checkpoint['model']))
             if 'optim' in checkpoint:
                 self.optim.load_state_dict(checkpoint['optim'])
         return
@@ -169,7 +169,7 @@ class TrainProcess(DistributedTrainerBase):
         if opt.world_size > 1:
             self.model.require_backward_grad_sync = False if step % gradient_accu_steps != 0 else True
 
-        with autocast(enabled=self.opt.enable_amp):
+        with autocast('cuda', enabled=self.opt.enable_amp):
             output = self.model(mb['image'])
         total_loss = self.loss_fn(output.float(), mb['label'].long())
 
@@ -268,7 +268,7 @@ class TrainProcess(DistributedTrainerBase):
         for mb in self.test_loader:
             mb = self.preprocess(mb)
             B = mb['image'].shape[0]
-            with autocast(enabled=self.opt.enable_amp):
+            with autocast('cuda', enabled=self.opt.enable_amp):
                 output = self.model(mb['image'])
             total_loss = self.loss_fn(output.float(), mb['label'].long())
 

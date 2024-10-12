@@ -259,7 +259,8 @@ class TrainerBase(object):
     def save_model(self, epoch, step, loss,
                    save_dir,
                    higher_is_better=False,
-                   max_time_not_save=60 * 60):
+                   max_time_not_save=60 * 60,
+                   save_ema=True):
         if not os.path.exists(save_dir):
             os.makedirs(save_dir)
 
@@ -287,6 +288,8 @@ class TrainerBase(object):
                      'model': self.model.state_dict(),
                      'optimizer': self.optim.state_dict()
                      }
+            if hasattr(self, 'model_ema') and save_ema:
+                state['model_ema'] = self.model_ema.state_dict()
             torch.save(state, model_path)
             self.last_save_timestamp = time.time()
         return False
